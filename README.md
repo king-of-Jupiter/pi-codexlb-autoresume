@@ -26,11 +26,17 @@
 **oh-my-pi**
 
 ```sh
+omp install git:github.com/king-of-Jupiter/pi-codexlb-autoresume
+```
+
+Альтернатива — вручную:
+
+```sh
 git clone https://github.com/king-of-Jupiter/pi-codexlb-autoresume.git
 omp plugin link ./pi-codexlb-autoresume
 ```
 
-Альтернатива через npm (нужен `bun` в PATH):
+Вариант через npm (нужен `bun` в PATH):
 
 ```sh
 omp install npm:pi-codexlb-autoresume
