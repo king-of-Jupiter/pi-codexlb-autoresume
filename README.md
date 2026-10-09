@@ -26,16 +26,20 @@
 **oh-my-pi**
 
 ```sh
-omp install npm:pi-codexlb-autoresume
+git clone https://github.com/king-of-Jupiter/pi-codexlb-autoresume.git
+omp plugin link ./pi-codexlb-autoresume
 ```
 
-Для npm-источников нужен `bun` в PATH. Без него: склонируйте репозиторий и выполните
-`omp plugin link ./pi-codexlb-autoresume`.
+Альтернатива через npm (нужен `bun` в PATH):
+
+```sh
+omp install npm:pi-codexlb-autoresume
+```
 
 **pi**
 
 ```sh
-pi install npm:pi-codexlb-autoresume
+git clone https://github.com/king-of-Jupiter/pi-codexlb-autoresume.git
 ```
 
 Или скопируйте `index.ts` + `src/` + `hooks/` в
