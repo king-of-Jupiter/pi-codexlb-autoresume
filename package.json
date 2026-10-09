@@ -1,0 +1,50 @@
+{
+  "name": "pi-codexlb-autoresume",
+  "version": "0.1.0",
+  "description": "Pi / oh-my-pi extension: auto-pause and auto-continue agents on codex-lb credit limits (5h/7d), with optional instant retry on provider errors",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "oh-my-pi",
+    "extension",
+    "usage",
+    "rate-limit",
+    "codex-lb",
+    "codex",
+    "load-balancer",
+    "autoresume",
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/king-of-Jupiter/pi-codexlb-autoresume"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "hooks",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
