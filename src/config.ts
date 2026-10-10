@@ -196,6 +196,39 @@ function validWatch(v: string): v is WatchWindow {
 	return v === "any" || v === "5h" || v === "7d";
 }
 
+/**
+ * Normalize a user-supplied endpoint to the codex-lb usage API.
+ *
+ * Accepts a bare host (`codexlb.example.com`), a host with `/v1`, or the
+ * full `/v1/usage` path — with or without scheme and trailing slashes.
+ * Anything else (including custom reverse-proxy prefixes) passes through
+ * untouched; unparseable input is returned as-is and rejected downstream
+ * by the http(s) check.
+ */
+export function normalizeEndpointUrl(raw: string): string {
+	let value = (raw ?? "").trim();
+	if (!value) return "";
+	if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) value = `https://${value}`;
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return (raw ?? "").trim();
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return (raw ?? "").trim();
+	const path = url.pathname.replace(/\/+$/, "");
+	if (path === "") {
+		url.pathname = "/v1/usage";
+	} else if (/\/v1$/i.test(path)) {
+		url.pathname = `${path.slice(0, -3)}/v1/usage`;
+	} else if (/\/v1\/usage$/i.test(path)) {
+		url.pathname = `${path.slice(0, -9)}/v1/usage`;
+	} else {
+		return (raw ?? "").trim();
+	}
+	return url.toString();
+}
+
 /** Resolve connection + settings. Env wins per-field; own file next; shared usage file for connection; defaults last. Never throws. */
 export async function resolveConfig(env: Record<string, string | undefined> = process.env): Promise<ResolvedConfig> {
 	const p = configFilePath(env);
@@ -209,7 +242,7 @@ export async function resolveConfig(env: Record<string, string | undefined> = pr
 	const fileUrl = (fv.endpointUrl ?? "").trim();
 	const fileToken = (fv.bearerToken ?? "").trim();
 	const fileLabel = (fv.label ?? "").trim();
-	const url = envUrl || fileUrl || shared.url;
+	const url = normalizeEndpointUrl(envUrl || fileUrl || shared.url);
 	const token = envToken || fileToken || shared.token;
 	const label = envLabel || fileLabel || shared.label || "CodexLB";
 

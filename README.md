@@ -75,6 +75,10 @@ or inside a session:
 /autoresume set-token <token>
 ```
 
+Any of these endpoint forms works — a bare host, `/v1`, or the full path
+(`codexlb.example.com`, `https://codexlb.example.com/v1`,
+`https://codexlb.example.com/v1/usage` all normalize to `/v1/usage`).
+
 The token must be a codex-lb **API key** (`sk-clb-...`, created in
 Dashboard → API Keys): `/v1/usage` always requires a valid key, even when
 global API-key auth is off. The `/api/usage/*` dashboard routes use a different

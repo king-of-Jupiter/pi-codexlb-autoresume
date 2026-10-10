@@ -73,6 +73,10 @@ export CODEXLB_TOKEN="<bearer-token>"
 /autoresume set-token <token>
 ```
 
+Работает любая из форм — bare-host, `/v1` или полный путь
+(`codexlb.example.com`, `https://codexlb.example.com/v1`,
+`https://codexlb.example.com/v1/usage` нормализуются к `/v1/usage`).
+
 Токеном должен быть **API-ключ** codex-lb (`sk-clb-...`, создаётся в
 Dashboard → API Keys): `/v1/usage` всегда требует валидный ключ, даже когда
 глобальная API-key авторизация выключена. Маршруты `/api/usage/*` — дашбордные,

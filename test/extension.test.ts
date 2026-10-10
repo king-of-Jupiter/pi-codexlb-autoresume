@@ -57,14 +57,16 @@ function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void
 function mockFetch(get: () => { json: unknown; status?: number }) {
 	const orig = globalThis.fetch;
 	let seenAuth: string | undefined;
+	let seenUrl: string | undefined;
 	let calls = 0;
-	globalThis.fetch = (async (_u: any, init: any) => {
+	globalThis.fetch = (async (u: any, init: any) => {
 		calls++;
+		seenUrl = String(u);
 		seenAuth = init?.headers?.Authorization;
 		const { json, status = 200 } = get();
 		return { status, ok: status >= 200 && status < 300, json: async () => json };
 	}) as any;
-	return { restore: () => { globalThis.fetch = orig; }, seenAuth: () => seenAuth, calls: () => calls };
+	return { restore: () => { globalThis.fetch = orig; }, seenAuth: () => seenAuth, seenUrl: () => seenUrl, calls: () => calls };
 }
 
 const usage = (used5h: number, used7d = 0.1) => ({
@@ -372,7 +374,7 @@ test("/autoresume set-url + set-token persist and poll; config masks the token",
 		try {
 			const h = fakeHost();
 			await h.fire("session_start", {});
-			await h.commands.autoresume("set-url notaurl", h.ctx);
+			await h.commands.autoresume("set-url ://missing-scheme", h.ctx);
 			assert.equal(h.notes.at(-1)!.level, "warning");
 			await h.commands.autoresume(`set-url ${URL}`, h.ctx);
 			assert.match(h.notes.at(-1)!.msg, /lb\.example\.com/);
@@ -387,6 +389,30 @@ test("/autoresume set-url + set-token persist and poll; config masks the token",
 			assert.match(msg, /config file/);
 			assert.match(msg, /••••-def/);
 			assert.doesNotMatch(msg, /tok-abc-def/);
+			await h.fire("session_shutdown", {});
+		} finally { f.restore(); }
+	});
+});
+
+test("/autoresume set-url accepts a bare host and polls the normalized /v1/usage URL", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "autoresume-ext-"));
+	const cfg = join(dir, "cfg.json");
+	await withEnv({
+		CODEXLB_URL: undefined, CODEXLB_USAGE_URL: undefined,
+		CODEXLB_TOKEN: "tok-123", CODEXLB_BEARER_TOKEN: undefined,
+		AUTORESSUME_CONFIG: cfg, CODEXLB_CONFIG: join(dir, "shared.json"),
+	}, async () => {
+		const f = mockFetch(() => ({ json: HEALTHY() }));
+		try {
+			const h = fakeHost();
+			await h.fire("session_start", {});
+			await h.commands.autoresume("set-url codexlb.viperrr.ru", h.ctx);
+			assert.equal(h.notes.at(-1)!.level, "info");
+			assert.match(h.notes.at(-1)!.msg, /codexlb\.viperrr\.ru/);
+			assert.equal(f.seenUrl(), "https://codexlb.viperrr.ru/v1/usage");
+			const { readFile } = await import("node:fs/promises");
+			const saved = JSON.parse(await readFile(cfg, "utf8"));
+			assert.equal(saved.endpointUrl, "https://codexlb.viperrr.ru/v1/usage");
 			await h.fire("session_shutdown", {});
 		} finally { f.restore(); }
 	});

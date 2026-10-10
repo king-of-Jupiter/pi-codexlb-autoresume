@@ -26,7 +26,7 @@ import {
 	type LimitsSnapshot,
 	type MonitorState,
 } from "./autoresume.ts";
-import { loadFileConfig, maskToken, resolveConfig, saveFileConfig } from "./config.ts";
+import { loadFileConfig, maskToken, normalizeEndpointUrl, resolveConfig, saveFileConfig } from "./config.ts";
 import { endpointHost, fetchCodexLbUsage } from "./sources/codexlb.ts";
 
 // ---- minimal host surface (pi and omp both satisfy this) ----
@@ -371,11 +371,17 @@ export default function codexlbAutoresume(api: HostAPI): void {
 				return save({ resumeMsg: rest }, "resume message updated");
 			}
 			if (cmd === "set-url") {
-				if (!/^https?:\/\/.+/i.test(rest)) return c.ui.notify("autoresume: give an absolute http(s) URL, e.g. /autoresume set-url https://example.com/v1/usage", "warning");
-				await saveFileConfig({ endpointUrl: rest });
+				const normalized = normalizeEndpointUrl(rest);
+				if (!/^https?:\/\/.+/i.test(normalized)) {
+					return c.ui.notify(
+						"autoresume: give an endpoint like codexlb.example.com, https://codexlb.example.com/v1 or https://codexlb.example.com/v1/usage",
+						"warning",
+					);
+				}
+				await saveFileConfig({ endpointUrl: normalized });
 				await pollAndEvaluate({ force: true, source: "set-url" });
 				return c.ui.notify(
-					mon.lastSnap ? `autoresume: endpoint saved (${endpointHost(rest)}), limits polled` : `autoresume: endpoint saved (${endpointHost(rest)}) but poll failed: ${mon.lastError}`,
+					mon.lastSnap ? `autoresume: endpoint saved (${endpointHost(normalized)}), limits polled` : `autoresume: endpoint saved (${endpointHost(normalized)}) but poll failed: ${mon.lastError}`,
 					mon.lastSnap ? "info" : "warning",
 				);
 			}

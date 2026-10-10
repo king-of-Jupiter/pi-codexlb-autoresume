@@ -7,6 +7,7 @@ import {
 	configFilePath,
 	loadFileConfig,
 	maskToken,
+	normalizeEndpointUrl,
 	resolveConfig,
 	saveFileConfig,
 	sharedUsageFilePath,
@@ -124,6 +125,32 @@ test("resolveConfig surfaces a corrupt own file as fileError", async () => {
 	const r = await resolveConfig({ AUTORESSUME_CONFIG: file, AUTORESSUME_ENABLED: "0" });
 	assert.match(r.fileError!, /JSON object/);
 	assert.equal(r.settings.enabled, false); // env still works
+});
+
+test("normalizeEndpointUrl accepts host, /v1 and /v1/usage forms", () => {
+	assert.equal(normalizeEndpointUrl("codexlb.viperrr.ru"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru/"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru/v1"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru/v1/"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru/v1/usage"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("https://codexlb.viperrr.ru/v1/usage/"), "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(normalizeEndpointUrl("http://192.168.1.10:8080"), "http://192.168.1.10:8080/v1/usage");
+	assert.equal(normalizeEndpointUrl(""), "");
+});
+
+test("normalizeEndpointUrl leaves custom paths and garbage alone", () => {
+	assert.equal(normalizeEndpointUrl("https://example.com/lb/prefix"), "https://example.com/lb/prefix");
+	assert.equal(normalizeEndpointUrl("ftp://example.com/v1/usage"), "ftp://example.com/v1/usage");
+	assert.equal(normalizeEndpointUrl("://missing-scheme"), "://missing-scheme");
+	assert.equal(normalizeEndpointUrl("not a url at all"), "not a url at all");
+});
+
+test("resolveConfig normalizes the endpoint URL from env", async () => {
+	const { dir } = await sandbox();
+	const r = await resolveConfig({ AUTORESSUME_CONFIG: join(dir, "nope.json"), CODEXLB_URL: "codexlb.viperrr.ru/v1" });
+	assert.equal(r.url, "https://codexlb.viperrr.ru/v1/usage");
+	assert.equal(r.urlFrom, "env");
 });
 
 test("maskToken never reveals more than 4 chars", () => {
