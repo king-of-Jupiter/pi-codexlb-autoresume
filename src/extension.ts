@@ -82,6 +82,8 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	let ctx: HostCtx | undefined;
 	let timer: unknown | undefined;
 	let hintShown = false;
+	/** True until the session shows any activity (or arrives with history). */
+	let fresh = true;
 	const mon: Monitor = {
 		paused: false,
 		announced: false,
@@ -92,6 +94,15 @@ export default function codexlbAutoresume(api: HostAPI): void {
 		lastRetryAt: 0,
 		lastRetrySource: "",
 	};
+
+	/** Threshold state is per-session: never leak pause/announce/budget across sessions. */
+	function resetMonitor(): void {
+		mon.paused = false;
+		mon.announced = false;
+		mon.retryAttempts = [];
+		mon.lastRetryAt = 0;
+		mon.lastRetrySource = "";
+	}
 
 	function sendPause(text: string): void {
 		if (typeof api.sendUserMessage !== "function") {
@@ -271,8 +282,11 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	}
 
 	api.on("session_start", async (_e, c) => {
+		stopTimer();
 		ctx = c;
 		hintShown = false;
+		fresh = true;
+		resetMonitor();
 		const cfg = await resolveConfig();
 		startTimer(cfg.settings.pollMs);
 		await pollAndEvaluate({ force: true, source: "session_start", silent: true });
@@ -286,8 +300,27 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	});
 	api.on("session_shutdown", () => stopTimer());
 
+	api.on("session_switch", async (e, c) => {
+		// Switching sessions reuses this process: drop the old session's
+		// threshold state. A resumed/forked session arrives WITH history, so
+		// its start poll may talk to the agent; a brand-new one stays silent.
+		stopTimer();
+		ctx = c;
+		const reason = typeof e === "object" && e !== null ? (e as Record<string, unknown>).reason : undefined;
+		fresh = reason !== "resume" && reason !== "fork";
+		resetMonitor();
+		const cfg = await resolveConfig();
+		startTimer(cfg.settings.pollMs);
+		await pollAndEvaluate({ force: true, source: "session_switch", silent: fresh });
+	});
+
+	api.on("turn_start", () => {
+		fresh = false;
+	});
+
 	api.on("after_provider_response", async (e, c) => {
 		ctx = c;
+		fresh = false;
 		if (e == null || typeof e !== "object") return;
 		const status = (e as Record<string, unknown>).status;
 		if (isRetryableStatus(status)) {
@@ -301,6 +334,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 
 	api.on("turn_end", async (e, c) => {
 		ctx = c;
+		fresh = false;
 		try {
 			const outcome = (e as Record<string, unknown> | null)?.outcome ?? (e as Record<string, unknown> | null);
 			const kind = typeof outcome === "object" && outcome !== null ? (outcome as Record<string, unknown>).kind : undefined;
@@ -333,7 +367,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 		const s = cfg.settings;
 		const t = now();
 		const lines = [
-			`autoresume: ${s.enabled ? "armed" : "OFF"} — state=${mon.paused ? (mon.announced ? "PAUSED (agent notified)" : "PAUSED (silent — fresh session)") : "normal"}`,
+			`autoresume: ${s.enabled ? "armed" : "OFF"} — state=${mon.paused ? (mon.announced ? "PAUSED (agent notified)" : "PAUSED (silent — no activity yet)") : "normal"}`,
 			`thresholds: pause below ${s.pausePct}% remaining, resume above ${s.resumePct}% remaining (watch: ${s.watch})`,
 			`limits: 5h=${formatPct(mon.lastSnap?.remaining5h ?? null)} remaining, 7d=${formatPct(mon.lastSnap?.remaining7d ?? null)} remaining`,
 			`poll: every ${Math.round(s.pollMs / 1000)}s${mon.lastPollAt ? `, last ${Math.max(0, t - mon.lastPollAt)}s ago` : ", never"}${mon.lastError ? `, last error: ${mon.lastError}` : ""}`,

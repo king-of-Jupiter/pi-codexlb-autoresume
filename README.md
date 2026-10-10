@@ -22,7 +22,9 @@ companion [pi-codexlb-usage](https://github.com/king-of-Jupiter/pi-codexlb-usage
 A fresh session starts silent: if limits are already exhausted, the plugin
 records the state and notifies you, but messages the agent only once real work
 starts (there is nothing to checkpoint yet). Refills after such a silent start
-likewise notify you without messaging the agent.
+likewise notify you without messaging the agent. Resuming or forking into a
+session with history announces the pause right away, and threshold state never
+leaks across sessions (no phantom resumes).
 
 It also works inside [Paseo](https://paseo.sh): the `omp` provider launches
 `omp --mode rpc` with extensions enabled, and extension-queued messages are

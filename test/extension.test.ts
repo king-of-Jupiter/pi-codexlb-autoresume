@@ -140,6 +140,61 @@ test("resume fires once when credit refills past the resume line", async () => {
 	});
 });
 
+test("session restart drops stale pause state: no phantom resume", async () => {
+	await withEnv(BASE_ENV, async () => {
+		let payload: unknown = EXHAUSTED();
+		const f = mockFetch(() => ({ json: payload }));
+		try {
+			const h = fakeHost();
+			await h.fire("session_start", {});
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
+			assert.equal(h.sent.length, 1); // pause announced in session A
+			// Same process, new session B with healthy limits: no "resume"
+			// for a pause B never had.
+			payload = HEALTHY();
+			advance(61);
+			await h.fire("session_start", {});
+			assert.equal(h.sent.length, 1);
+			await h.commands.autoresume("status", h.ctx);
+			assert.match(h.notes.at(-1)!.msg, /state=normal/);
+			await h.fire("session_shutdown", {});
+		} finally { f.restore(); }
+	});
+});
+
+test("session_switch into a resumed session announces immediately", async () => {
+	await withEnv(BASE_ENV, async () => {
+		const f = mockFetch(() => ({ json: EXHAUSTED() }));
+		try {
+			const h = fakeHost();
+			await h.fire("session_start", {});
+			assert.equal(h.sent.length, 0);
+			await h.fire("session_switch", { reason: "resume" });
+			assert.equal(h.sent.length, 1); // history exists: tell the agent
+			assert.match(h.sent[0]!.text, /закончились лимиты/);
+			await h.commands.autoresume("status", h.ctx);
+			assert.match(h.notes.at(-1)!.msg, /PAUSED \(agent notified\)/);
+			await h.fire("session_shutdown", {});
+		} finally { f.restore(); }
+	});
+});
+
+test("session_switch into a brand-new session stays silent", async () => {
+	await withEnv(BASE_ENV, async () => {
+		const f = mockFetch(() => ({ json: EXHAUSTED() }));
+		try {
+			const h = fakeHost();
+			await h.fire("session_start", {});
+			await h.fire("session_switch", { reason: "new" });
+			assert.equal(h.sent.length, 0);
+			await h.commands.autoresume("status", h.ctx);
+			assert.match(h.notes.at(-1)!.msg, /PAUSED \(silent — no activity yet\)/);
+			await h.fire("session_shutdown", {});
+		} finally { f.restore(); }
+	});
+});
+
 test("refill after a silent fresh-session pause notifies the human only", async () => {
 	await withEnv(BASE_ENV, async () => {
 		let payload: unknown = EXHAUSTED();

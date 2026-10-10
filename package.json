@@ -1,6 +1,6 @@
 {
   "name": "pi-codexlb-autoresume",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Pi / oh-my-pi extension: auto-pause and auto-continue agents on codex-lb credit limits (5h/7d), with optional instant retry on provider errors",
   "type": "module",
   "license": "MIT",
