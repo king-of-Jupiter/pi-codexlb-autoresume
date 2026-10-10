@@ -1,6 +1,6 @@
 {
   "name": "codexlb-autoresume",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Auto-pause and auto-continue agents on codex-lb credit limits (5h/7d), with optional instant retry on provider errors",
   "author": { "name": "pi-codexlb-autoresume contributors" },
   "license": "MIT",
