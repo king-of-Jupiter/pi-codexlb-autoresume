@@ -62,16 +62,21 @@ git clone https://github.com/king-of-Jupiter/pi-codexlb-autoresume.git
 если он настроен):
 
 ```sh
-export CODEXLB_URL="https://example.com/api/usage"
+export CODEXLB_URL="https://example.com/v1/usage"
 export CODEXLB_TOKEN="<bearer-token>"
 ```
 
 или внутри сессии:
 
 ```
-/autoresume set-url https://example.com/api/usage
+/autoresume set-url https://example.com/v1/usage
 /autoresume set-token <token>
 ```
+
+Токеном должен быть **API-ключ** codex-lb (`sk-clb-...`, создаётся в
+Dashboard → API Keys): `/v1/usage` всегда требует валидный ключ, даже когда
+глобальная API-key авторизация выключена. Маршруты `/api/usage/*` — дашбордные,
+с другой авторизацией и форматом, здесь они дадут 404/401.
 
 Пороги — это **остаток** в процентах. Дефолт: пауза при остатке `< 10%`,
 продолжить при остатке `> 30%` (гистерезис обязателен: resume всегда выше pause).

@@ -64,16 +64,21 @@ Minimum — endpoint and token (shared with pi-codexlb-usage; read from its file
 when configured):
 
 ```sh
-export CODEXLB_URL="https://example.com/api/usage"
+export CODEXLB_URL="https://example.com/v1/usage"
 export CODEXLB_TOKEN="<bearer-token>"
 ```
 
 or inside a session:
 
 ```
-/autoresume set-url https://example.com/api/usage
+/autoresume set-url https://example.com/v1/usage
 /autoresume set-token <token>
 ```
+
+The token must be a codex-lb **API key** (`sk-clb-...`, created in
+Dashboard → API Keys): `/v1/usage` always requires a valid key, even when
+global API-key auth is off. The `/api/usage/*` dashboard routes use a different
+auth and payload — they will answer 404/401 here.
 
 Thresholds are **remaining** percent. Defaults: pause when remaining `< 10%`,
 resume when remaining `> 30%` (hysteresis is mandatory: resume always stays

@@ -203,7 +203,12 @@ export async function fetchCodexLbUsage(
 	if (res.status === 401 || res.status === 403) {
 		return { error: `CodexLB rejected the token (HTTP ${res.status}).`, authFailed: true };
 	}
-	if (!res.ok) return { error: `CodexLB endpoint returned HTTP ${res.status}.` };
+	if (!res.ok) {
+		if (res.status === 404) {
+			return { error: "CodexLB endpoint returned HTTP 404 — check the path: the usage API is https://<host>/v1/usage (not /api/usage)." };
+		}
+		return { error: `CodexLB endpoint returned HTTP ${res.status}.` };
+	}
 
 	let json: unknown;
 	try {

@@ -132,6 +132,7 @@ test("fetch: auth failures, http errors, bad json, bad shape, network errors", a
 	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({}, 401) })).error!, /rejected.*401/);
 	assert.equal((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({}, 401) })).authFailed, true);
 	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({}, 500) })).error!, /HTTP 500/);
+	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({}, 404) })).error!, /HTTP 404.*\/v1\/usage/);
 	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: stubFetch(async () => ({ status: 200, ok: true, json: async () => { throw new Error("boom"); } })) })).error!, /invalid JSON/);
 	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({ nope: 1 }) })).error!, /unexpected JSON/);
 	assert.match((await fetchCodexLbUsage("https://x/y", "t", now, { fetchFn: ok({ limits: [] }) })).error!, /no limits/);

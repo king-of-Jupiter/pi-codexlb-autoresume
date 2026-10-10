@@ -371,7 +371,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 				return save({ resumeMsg: rest }, "resume message updated");
 			}
 			if (cmd === "set-url") {
-				if (!/^https?:\/\/.+/i.test(rest)) return c.ui.notify("autoresume: give an absolute http(s) URL, e.g. /autoresume set-url https://example.com/api/usage", "warning");
+				if (!/^https?:\/\/.+/i.test(rest)) return c.ui.notify("autoresume: give an absolute http(s) URL, e.g. /autoresume set-url https://example.com/v1/usage", "warning");
 				await saveFileConfig({ endpointUrl: rest });
 				await pollAndEvaluate({ force: true, source: "set-url" });
 				return c.ui.notify(

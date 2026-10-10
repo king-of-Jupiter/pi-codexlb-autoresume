@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ext from "../src/extension.ts";
 
-const URL = "https://lb.example.com/api/usage";
+const URL = "https://lb.example.com/v1/usage";
 
 // ---- clock control (the extension reads Date.now for throttle/cooldown) ----
 const realNow = Date.now;
