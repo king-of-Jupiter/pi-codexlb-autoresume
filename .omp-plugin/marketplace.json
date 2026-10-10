@@ -11,7 +11,7 @@
       "name": "codexlb-autoresume",
       "source": "./",
       "description": "Auto-pause and auto-continue agents on codex-lb credit limits (5h/7d). Adds the /autoresume command; no widget, no /limits.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": { "name": "pi-codexlb-autoresume contributors" },
       "license": "MIT",
       "keywords": ["usage", "rate-limit", "codex-lb", "codex", "autoresume", "status"],
