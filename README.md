@@ -17,7 +17,12 @@ and injects messages into the same session:
 There is no widget and no `/limits` command here — display belongs to the
 companion [pi-codexlb-usage](https://github.com/king-of-Jupiter/pi-codexlb-usage)
 (both install side by side with no conflicts). This plugin owns only the
-`/autoresume` command.
+`/autoresume` command (subcommands and fixed values complete via Tab).
+
+A fresh session starts silent: if limits are already exhausted, the plugin
+records the state and notifies you, but messages the agent only once real work
+starts (there is nothing to checkpoint yet). Refills after such a silent start
+likewise notify you without messaging the agent.
 
 It also works inside [Paseo](https://paseo.sh): the `omp` provider launches
 `omp --mode rpc` with extensions enabled, and extension-queued messages are

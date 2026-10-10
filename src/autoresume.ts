@@ -201,3 +201,62 @@ export function validatePatch(patch: Partial<AutoresumeSettings>, effective: Aut
 export function formatPct(fraction: number | null): string {
 	return fraction === null ? "n/a" : `${Math.round(fraction * 100)}%`;
 }
+
+// ---- /autoresume argument completions (host Tab completion) ----
+
+export interface CompletionItem {
+	value: string;
+	label: string;
+	description?: string;
+}
+
+interface SubcommandDef {
+	name: string;
+	description: string;
+	/** Fixed value vocabulary for the second token; absent = free text (no completion). */
+	values?: string[];
+}
+
+export const AUTORESSUME_SUBCOMMANDS: SubcommandDef[] = [
+	{ name: "status", description: "Thresholds, state, poll freshness, retry budget" },
+	{ name: "toggle", description: "Arm/disarm auto-pause" },
+	{ name: "pause", description: "Pause line, remaining % (e.g. 10)" },
+	{ name: "resume", description: "Resume line, remaining % (e.g. 30)" },
+	{ name: "poll", description: "Poll interval in seconds (min 15)" },
+	{ name: "watch", description: "Windows to watch", values: ["any", "5h", "7d"] },
+	{ name: "retry", description: "Instant retry-on-error", values: ["on", "off"] },
+	{ name: "retry-cooldown", description: "Cooldown between auto-continues (sec)" },
+	{ name: "retry-max", description: "Retry budget per 30 min window" },
+	{ name: "msg-pause", description: "Custom pause text" },
+	{ name: "msg-resume", description: "Custom resume text" },
+	{ name: "set-url", description: "Save endpoint and poll now" },
+	{ name: "set-token", description: "Save token (0600) and poll now" },
+	{ name: "config", description: "Config files, field sources, masked token" },
+	{ name: "test-pause", description: "Send pause text without changing state" },
+	{ name: "test-resume", description: "Send resume text without changing state" },
+	{ name: "help", description: "Show command help" },
+];
+
+/**
+ * Complete `/autoresume` arguments for host Tab completion.
+ * First token: subcommand names filtered by prefix. Second token: fixed
+ * values of an exactly-typed subcommand. Anything else: null (host fallback).
+ */
+export function completeAutoresumeArgs(argumentPrefix: string): CompletionItem[] | null {
+	const parts = argumentPrefix.split(/\s+/);
+	const first = parts[0] ?? "";
+	if (parts.length <= 1) {
+		const matches = AUTORESSUME_SUBCOMMANDS.filter((s) => s.name.startsWith(first));
+		return matches.length
+			? matches.map((s) => ({ value: s.name, label: s.name, description: s.description }))
+			: null;
+	}
+	if (parts.length === 2) {
+		const sub = AUTORESSUME_SUBCOMMANDS.find((s) => s.name === first);
+		if (!sub?.values) return null;
+		const second = parts[1] ?? "";
+		const matches = sub.values.filter((v) => v.startsWith(second));
+		return matches.length ? matches.map((v) => ({ value: v, label: v })) : null;
+	}
+	return null;
+}

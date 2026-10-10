@@ -18,6 +18,7 @@ const advance = (sec: number) => { clockOffset += sec * 1000; };
 function fakeHost(opts: { withSend?: boolean } = {}) {
 	const handlers: Record<string, Function[]> = {};
 	const commands: Record<string, Function> = {};
+	const defs: Record<string, any> = {};
 	const notes: { msg: string; level?: string }[] = [];
 	const sent: { text: string; opts?: unknown }[] = [];
 	const ctx: any = {
@@ -29,14 +30,14 @@ function fakeHost(opts: { withSend?: boolean } = {}) {
 	};
 	const api: any = {
 		on: (e: string, h: Function) => (handlers[e] ??= []).push(h),
-		registerCommand: (n: string, d: any) => (commands[n] = d.handler),
+		registerCommand: (n: string, d: any) => { commands[n] = d.handler; defs[n] = d; },
 	};
 	if (opts.withSend !== false) {
 		api.sendUserMessage = (text: string, o?: unknown) => { sent.push({ text, opts: o }); };
 	}
 	ext(api as any);
 	const fire = async (e: string, ev: any) => { for (const h of handlers[e] ?? []) await h(ev, ctx); };
-	return { fire, commands, notes, sent, ctx };
+	return { fire, commands, defs, notes, sent, ctx };
 }
 
 function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void>) {
@@ -93,12 +94,18 @@ test("session_start polls with Bearer token and stays silent when healthy", asyn
 	});
 });
 
-test("pause is sent once as agent steer when limits cross below the line", async () => {
+test("fresh session with exhausted limits stays silent; pause goes out once work starts", async () => {
 	await withEnv(BASE_ENV, async () => {
 		const f = mockFetch(() => ({ json: EXHAUSTED() }));
 		try {
 			const h = fakeHost();
 			await h.fire("session_start", {});
+			assert.equal(h.sent.length, 0); // nothing in-flight to checkpoint
+			assert.match(h.notes.at(-1)!.msg, /limits exhausted/);
+			assert.equal(h.notes.at(-1)!.level, "warning");
+			// First turn activity: now there is something to hold off.
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
 			assert.equal(h.sent.length, 1);
 			assert.match(h.sent[0]!.text, /закончились лимиты/);
 			assert.deepEqual(h.sent[0]!.opts, { attribution: "agent", deliverAs: "steer" });
@@ -118,13 +125,36 @@ test("resume fires once when credit refills past the resume line", async () => {
 		try {
 			const h = fakeHost();
 			await h.fire("session_start", {});
-			assert.equal(h.sent.length, 1); // pause
+			assert.equal(h.sent.length, 0); // silent fresh-session pause
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
+			assert.equal(h.sent.length, 1); // pause announced once work exists
 			payload = HEALTHY();
 			advance(61);
 			await h.fire("turn_end", { outcome: { kind: "completed" } });
 			assert.equal(h.sent.length, 2);
 			assert.match(h.sent[1]!.text, /Продолжи с места остановки/);
 			assert.deepEqual(h.sent[1]!.opts, { attribution: "agent" });
+			await h.fire("session_shutdown", {});
+		} finally { f.restore(); }
+	});
+});
+
+test("refill after a silent fresh-session pause notifies the human only", async () => {
+	await withEnv(BASE_ENV, async () => {
+		let payload: unknown = EXHAUSTED();
+		const f = mockFetch(() => ({ json: payload }));
+		try {
+			const h = fakeHost();
+			await h.fire("session_start", {});
+			assert.equal(h.sent.length, 0);
+			payload = HEALTHY();
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
+			assert.equal(h.sent.length, 0); // nothing was announced, nothing to continue
+			assert.match(h.notes.at(-1)!.msg, /refilled, session was never held/);
+			await h.commands.autoresume("status", h.ctx);
+			assert.match(h.notes.at(-1)!.msg, /state=normal/);
 			await h.fire("session_shutdown", {});
 		} finally { f.restore(); }
 	});
@@ -137,6 +167,9 @@ test("hysteresis: mid-band readings change nothing", async () => {
 		try {
 			const h = fakeHost();
 			await h.fire("session_start", {});
+			assert.equal(h.sent.length, 0); // silent fresh-session pause
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
 			assert.equal(h.sent.length, 1); // pause at 5% remaining
 			payload = usage(0.8); // 20% remaining: above pause, below resume
 			advance(61);
@@ -217,9 +250,13 @@ test("retry-on-error: skipped while paused; refill path owns the resume", async 
 		try {
 			const h = fakeHost();
 			await h.fire("session_start", {});
-			assert.equal(h.sent.length, 1); // pause
+			assert.equal(h.sent.length, 0); // silent fresh-session pause
 			await h.fire("after_provider_response", { status: 429, headers: {} });
-			assert.equal(h.sent.length, 1); // no resume while paused
+			assert.equal(h.sent.length, 1); // pause announced (turn activity), but no resume
+			assert.match(h.sent[0]!.text, /закончились лимиты/);
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
+			assert.equal(h.sent.length, 1); // no duplicate, no resume while paused
 			await h.fire("session_shutdown", {});
 		} finally { f.restore(); }
 	});
@@ -286,6 +323,9 @@ test("without sendUserMessage the host warns instead of crashing", async () => {
 		try {
 			const h = fakeHost({ withSend: false });
 			await h.fire("session_start", {});
+			assert.match(h.notes.at(-1)!.msg, /limits exhausted/); // silent path needs no injection
+			advance(61);
+			await h.fire("turn_end", { outcome: { kind: "completed" } });
 			assert.match(h.notes.at(-1)!.msg, /NOT delivered/);
 			await h.fire("session_shutdown", {});
 		} finally { f.restore(); }
@@ -416,6 +456,16 @@ test("/autoresume set-url accepts a bare host and polls the normalized /v1/usage
 			await h.fire("session_shutdown", {});
 		} finally { f.restore(); }
 	});
+});
+
+test("/autoresume registers Tab completions for subcommands and values", async () => {
+	const h = fakeHost();
+	const complete = h.defs.autoresume?.getArgumentCompletions;
+	assert.equal(typeof complete, "function");
+	assert.ok(complete("").length > 10);
+	assert.deepEqual(complete("tog").map((i: any) => i.value), ["toggle"]);
+	assert.deepEqual(complete("watch ").map((i: any) => i.value), ["any", "5h", "7d"]);
+	await h.fire("session_shutdown", {});
 });
 
 test("/autoresume test-pause/test-resume deliver without changing state", async () => {

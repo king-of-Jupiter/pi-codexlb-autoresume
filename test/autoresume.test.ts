@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+	completeAutoresumeArgs,
 	decideOnPoll,
 	errorTextFromEvent,
 	formatPct,
@@ -144,4 +145,28 @@ test("validatePatch accepts good values and guards hysteresis", () => {
 test("formatPct renders fractions and unknowns", () => {
 	assert.equal(formatPct(0.095), "10%");
 	assert.equal(formatPct(null), "n/a");
+});
+
+test("completeAutoresumeArgs: empty prefix lists all subcommands", () => {
+	const all = completeAutoresumeArgs("");
+	assert.ok(all && all.length > 10);
+	assert.ok(all.some((i) => i.value === "status" && typeof i.description === "string"));
+	assert.ok(all.some((i) => i.value === "test-resume"));
+});
+
+test("completeAutoresumeArgs: filters subcommands by prefix", () => {
+	const retry = completeAutoresumeArgs("retr")!.map((i) => i.value).sort();
+	assert.deepEqual(retry, ["retry", "retry-cooldown", "retry-max"]);
+	assert.deepEqual(completeAutoresumeArgs("tog")!.map((i) => i.value), ["toggle"]);
+	assert.equal(completeAutoresumeArgs("nope"), null);
+});
+
+test("completeAutoresumeArgs: second token completes fixed vocabularies", () => {
+	assert.deepEqual(completeAutoresumeArgs("watch ")!.map((i) => i.value), ["any", "5h", "7d"]);
+	assert.deepEqual(completeAutoresumeArgs("watch 5")!.map((i) => i.value), ["5h"]);
+	assert.deepEqual(completeAutoresumeArgs("retry o")!.map((i) => i.value), ["on", "off"]);
+	assert.equal(completeAutoresumeArgs("watch x"), null);
+	assert.equal(completeAutoresumeArgs("pause "), null); // free text: host fallback
+	assert.equal(completeAutoresumeArgs("status "), null);
+	assert.equal(completeAutoresumeArgs("a b c"), null);
 });

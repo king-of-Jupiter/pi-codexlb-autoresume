@@ -12,6 +12,7 @@
  * pi-codexlb-usage plugin. This module owns only /autoresume.
  */
 import {
+	completeAutoresumeArgs,
 	decideOnPoll,
 	errorTextFromEvent,
 	formatPct,
@@ -23,6 +24,7 @@ import {
 	validatePatch,
 	worstRemaining,
 	MIN_POLL_GAP_MS,
+	type CompletionItem,
 	type LimitsSnapshot,
 	type MonitorState,
 } from "./autoresume.ts";
@@ -41,12 +43,25 @@ interface HostCtx {
 }
 interface HostAPI {
 	on: (event: string, handler: (event: any, ctx: HostCtx) => unknown) => void;
-	registerCommand: (name: string, def: { description: string; handler: (args: string, ctx: HostCtx) => Promise<void> | void }) => void;
+	registerCommand: (
+		name: string,
+		def: {
+			description: string;
+			getArgumentCompletions?: (argumentPrefix: string) => CompletionItem[] | null;
+			handler: (args: string, ctx: HostCtx) => Promise<void> | void;
+		},
+	) => void;
 	sendUserMessage?: (content: string, opts?: { deliverAs?: "steer" | "followUp" | "nextTurn" | "aside"; attribution?: "user" | "agent" }) => unknown;
 }
 
 interface Monitor {
 	paused: boolean;
+	/**
+	 * Whether the agent itself was told about the pause. A fresh session has
+	 * nothing to checkpoint, so the session_start poll records the state and
+	 * notifies the human instead of messaging the agent.
+	 */
+	announced: boolean;
 	lastSnap: LimitsSnapshot | null;
 	lastPollAt: number;
 	lastError: string;
@@ -69,6 +84,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	let hintShown = false;
 	const mon: Monitor = {
 		paused: false,
+		announced: false,
 		lastSnap: null,
 		lastPollAt: 0,
 		lastError: "",
@@ -98,7 +114,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	}
 
 	/** Poll the endpoint and run the pause/resume state machine. Returns remaining fraction or null. */
-	async function pollAndEvaluate(opts: { force?: boolean; source?: string } = {}): Promise<number | null> {
+	async function pollAndEvaluate(opts: { force?: boolean; source?: string; silent?: boolean } = {}): Promise<number | null> {
 		if (!ctx) return null;
 		const t = now();
 		if (!opts.force && t - mon.lastPollAt < MIN_POLL_GAP_MS / 1000) {
@@ -137,16 +153,46 @@ export default function codexlbAutoresume(api: HostAPI): void {
 		debug(`poll (${opts.source ?? "?"}): state=${state} remaining=${remaining === null ? "n/a" : `${Math.round(remaining * 100)}%`} → ${decision ?? "none"}`);
 		if (decision === "pause") {
 			mon.paused = true;
-			sendPause(cfg2.settings.pauseMsg);
+			if (opts.silent || mon.announced) {
+				// Fresh session (or repeat): nothing in-flight to checkpoint —
+				// record the state and tell the human, not the agent.
+				if (opts.silent) {
+					ctx.ui.notify(
+						`autoresume: limits exhausted (${formatPct(remaining)} remaining) — the agent will be told to hold off once it starts working`,
+						"warning",
+					);
+				}
+			} else {
+				mon.announced = true;
+				sendPause(cfg2.settings.pauseMsg);
+			}
 		} else if (decision === "resume") {
 			mon.paused = false;
-			sendResume(cfg2.settings.resumeMsg);
+			if (mon.announced) {
+				mon.announced = false;
+				sendResume(cfg2.settings.resumeMsg);
+			} else {
+				// Pause was never announced (fresh session): nothing was stopped,
+				// so there is nothing to continue — tell the human only.
+				ctx.ui.notify("autoresume: limits refilled, session was never held", "info");
+			}
 		}
 		return remaining;
 	}
 
-	/** Instant path: provider failed — continue at once if the API says limits remain. */
-	async function handleErrorTrigger(kind: string): Promise<void> {
+	/** Tell a working agent about a silently recorded pause, exactly once. */
+	async function announceIfNeeded(): Promise<void> {
+		// A poll may record "paused" while the agent never heard about it
+		// (silent fresh-session start). Turn activity means there is now
+		// something worth holding off — tell the agent exactly once.
+		if (!ctx || !mon.paused || mon.announced) return;
+		const cfg = await resolveConfig();
+		if (!ctx || !mon.paused || mon.announced || !cfg.settings.enabled) return;
+		mon.announced = true;
+		sendPause(cfg.settings.pauseMsg);
+	}
+
+	/** Instant path: provider failed — continue at once if the API says limits remain. */	async function handleErrorTrigger(kind: string): Promise<void> {
 		if (!ctx) return;
 		const cfg = await resolveConfig();
 		if (!cfg.settings.enabled || !cfg.settings.retryOnError) return;
@@ -229,7 +275,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 		hintShown = false;
 		const cfg = await resolveConfig();
 		startTimer(cfg.settings.pollMs);
-		await pollAndEvaluate({ force: true, source: "session_start" });
+		await pollAndEvaluate({ force: true, source: "session_start", silent: true });
 		if (!hintShown && ctx.hasUI !== false && !cfg.url && !cfg.token) {
 			hintShown = true;
 			ctx.ui.notify(
@@ -240,18 +286,20 @@ export default function codexlbAutoresume(api: HostAPI): void {
 	});
 	api.on("session_shutdown", () => stopTimer());
 
-	api.on("after_provider_response", (e, c) => {
+	api.on("after_provider_response", async (e, c) => {
 		ctx = c;
-		if (e == null || typeof e !== "object") return undefined;
+		if (e == null || typeof e !== "object") return;
 		const status = (e as Record<string, unknown>).status;
 		if (isRetryableStatus(status)) {
-			return handleErrorTrigger(`provider-status-${String(status)}`);
+			await handleErrorTrigger(`provider-status-${String(status)}`);
+		} else {
+			// Fast pause path: the turn that just burned the quota pauses without waiting for the tick.
+			await pollAndEvaluate({ source: "after-response" });
 		}
-		// Fast pause path: the turn that just burned the quota pauses without waiting for the tick.
-		return pollAndEvaluate({ source: "after-response" });
+		await announceIfNeeded();
 	});
 
-	api.on("turn_end", (e, c) => {
+	api.on("turn_end", async (e, c) => {
 		ctx = c;
 		try {
 			const outcome = (e as Record<string, unknown> | null)?.outcome ?? (e as Record<string, unknown> | null);
@@ -261,15 +309,19 @@ export default function codexlbAutoresume(api: HostAPI): void {
 					mon.retryAttempts = [];
 					debug("retry budget reset (successful turn)");
 				}
-				return pollAndEvaluate({ source: "turn_end" });
+				await pollAndEvaluate({ source: "turn_end" });
+				await announceIfNeeded();
+				return;
 			}
-			if (kind === "canceled" || kind === "cancelled") return undefined;
+			if (kind === "canceled" || kind === "cancelled") return;
 			// Failed (or unknown shape): look for quota/overload wording.
 			const text = errorTextFromEvent(e);
 			if (isRetryableText(text)) {
-				return handleErrorTrigger("turn-failed");
+				await handleErrorTrigger("turn-failed");
+			} else {
+				await pollAndEvaluate({ source: "turn_end" });
 			}
-			return pollAndEvaluate({ source: "turn_end" });
+			await announceIfNeeded();
 		} catch (err) {
 			debug("turn_end handler:", err instanceof Error ? err.message : String(err));
 		}
@@ -281,7 +333,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 		const s = cfg.settings;
 		const t = now();
 		const lines = [
-			`autoresume: ${s.enabled ? "armed" : "OFF"} — state=${mon.paused ? "PAUSED" : "normal"}`,
+			`autoresume: ${s.enabled ? "armed" : "OFF"} — state=${mon.paused ? (mon.announced ? "PAUSED (agent notified)" : "PAUSED (silent — fresh session)") : "normal"}`,
 			`thresholds: pause below ${s.pausePct}% remaining, resume above ${s.resumePct}% remaining (watch: ${s.watch})`,
 			`limits: 5h=${formatPct(mon.lastSnap?.remaining5h ?? null)} remaining, 7d=${formatPct(mon.lastSnap?.remaining7d ?? null)} remaining`,
 			`poll: every ${Math.round(s.pollMs / 1000)}s${mon.lastPollAt ? `, last ${Math.max(0, t - mon.lastPollAt)}s ago` : ", never"}${mon.lastError ? `, last error: ${mon.lastError}` : ""}`,
@@ -293,6 +345,7 @@ export default function codexlbAutoresume(api: HostAPI): void {
 
 	api.registerCommand("autoresume", {
 		description: "CodexLB auto-pause/continue: /autoresume [status|toggle|pause|resume|poll|watch|retry|...]",
+		getArgumentCompletions: completeAutoresumeArgs,
 		handler: async (args, c) => {
 			ctx = c;
 			const trimmed = args.trim();
